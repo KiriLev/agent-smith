@@ -1,0 +1,108 @@
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+import prompts
+from llm import run_llm
+
+
+def get_html_and_snapshot(url):
+    # gets html and snapshot from serverless chrome
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(url)
+        snapshot = page.accessibility.snapshot()
+        return page.content(), snapshot
+
+
+def get_answers(texts: list[str], query: str) -> list[str]:
+    # tries to find an answer for the given query in texts using llm request
+    llm_result = run_llm(prompts.answer_finder_system_prompt, prompts.get_answer_finder_user_prompt(texts, query))
+    if not llm_result.success:
+        return []
+    result = []
+    texts_merged = " ".join(texts)
+    for answer in llm_result.results:
+        if answer in texts_merged:
+            result.append(answer)
+    return result
+
+
+def filter_link_with_texts(links_with_texts: list[tuple[str, str]], query: str) -> list[tuple[str, str]]:
+    # simple + llm filtering and ranking for the best next link to get closer to get answer for the query
+    links_with_texts = [(link, text) for link, text in links_with_texts if text != ""]
+    llm_result = run_llm(prompts.links_filter_system_prompt, prompts.get_links_filter_user_prompt(links_with_texts, query))
+    if not llm_result.success:
+        return []
+    result = []
+    for idx in llm_result.results:
+        result.append(links_with_texts[idx])
+    return result
+
+
+def get_links_from_page(soup):
+    # Find all <a> tags, which define hyperlinks
+    links = soup.find_all('a')
+
+    # Extract the URL and text from each link
+    links_with_text = [(link.get('href'), link.get_text(strip=True))
+                       for link in links
+                       if link.get('href') is not None and len(link.get('href')) > 1]
+    return links_with_text
+
+
+def postprocess_links(parent_url: str, next_links: list[str]) -> list[str]:
+    result = []
+    parent_url_parsed = urlparse(parent_url)
+    base_url = parent_url_parsed.scheme + "://" + parent_url_parsed.hostname
+    for l in next_links:
+        if l.startswith("/"):
+            result.append(base_url.rstrip("/") + l)
+        elif urlparse(l).hostname == parent_url_parsed.hostname:
+            result.append(l)
+    return result
+
+
+def get_page_texts(soup):
+    # gets all texts from the webpage loaded in soup
+    visible_texts = [text for text in soup.stripped_strings]
+    visible_texts = [t.strip() for t in visible_texts if len(t) > 3]
+    return visible_texts
+
+
+def get_results_or_next_links(url: str, query: str) -> tuple[list[str], list[str]]:
+    full_html, snapshot = get_html_and_snapshot(url)
+    # breakpoint()
+    soup = BeautifulSoup(full_html, 'html.parser')
+    page_texts = get_page_texts(soup)
+    answers = get_answers(page_texts, query)
+    if len(answers) > 0:
+        return answers, []
+    links_with_texts = get_links_from_page(soup)  # (link, text)
+    links_with_texts = filter_link_with_texts(links_with_texts, query)
+    next_links = [l[0] for l in links_with_texts]
+    next_links = postprocess_links(url, next_links)
+    return [], next_links
+
+
+def get_result(url: str, query: str) -> list[str]:
+    # running bfs on the website
+    q = [url]
+    visited = set()
+    while q:
+        new_url = q.pop(0)
+        if new_url in visited:
+            continue
+        print(new_url)
+        results, next_links = get_results_or_next_links(new_url, query)
+        visited.add(new_url)
+        if results:
+            return results
+        else:
+            q.extend(next_links)
+    return []
+
+
+if __name__ == '__main__':
+    print(get_result("https://together.ai/", "who is CEO of together.ai?"))
+    print(get_result("https://wandb.ai/", "who is CEO of wandb.ai?"))
