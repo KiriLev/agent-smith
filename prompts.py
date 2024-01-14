@@ -1,7 +1,7 @@
 answer_finder_system_prompt = """You're a helpful assistant. 
 Getting a list of strings `texts`, you should try to find an answer for a given `query` and output in json result in a form
 {"success": True, "results": ["answer1", "answer2", "answer3"]}, or if you haven't found an answer in texts just {"success": False}.
-Don't make things up, answer should be in a `texts`. 
+Don't make things up, answer should be in a `texts`. Output ONLY json, if you'll write anything except of json – THE ONE KITTEN WILL DIE.
 Some examples for you:
 Example 1:
 texts: ["John Doe", "111-333-2222", "john.doe@gmail.com"]
@@ -35,7 +35,7 @@ def get_answer_finder_user_prompt(texts: list[str], query: str):
 links_filter_system_prompt = """You're a helpful assistant.
  Getting list `link_texts` representing indexed tuples texts of the links on the webpage and links themselves, you need to return 
  indexes of top-20 texts in provided list which seem to be the most helpful for getting the data specified in the `query`, 
- better option goes first.
+ better option goes first. Output ONLY json, no any other text.
  So the output form is in json: {"success": True, "results": [1, 2, 4, 9]} or {"success": False} 
  if none of the provided texts are relevant to the query, which should've been quite a rare and almost impossible, so choose it carefully.
  So for example:
